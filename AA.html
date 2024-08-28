@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Physics Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label for="objectSlider">Number of objects: <span id="objectCount">5</span></label>
+        <input type="range" id="objectSlider" min="1" max="100" value="5">
+        <button id="launchButton">Launch Objects</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <script>
+        let scene, camera, renderer, world, spheres = [], boxes = [];
+let isShiftPressed = false;
+let rainInterval;
+
+function init() {
+    // Set up Three.js scene
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Set up lighting
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+
+    // Set up Cannon.js world
+    world = new CANNON.World();
+    world.gravity.set(0, -9.82, 0);
+
+    // Create ground
+    const groundShape = new CANNON.Plane();
+    const groundBody = new CANNON.Body({ mass: 0 });
+    groundBody.addShape(groundShape);
+    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    world.addBody(groundBody);
+
+    const groundGeometry = new THREE.PlaneGeometry(10, 10);
+    const groundMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+    const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+    groundMesh.rotation.x = -Math.PI / 2;
+    scene.add(groundMesh);
+
+    camera.position.set(0, 5, 10);
+    camera.lookAt(0, 0, 0);
+
+    // Add event listeners
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+
+    // Set up slider and launch button
+    const slider = document.getElementById('objectSlider');
+    const objectCount = document.getElementById('objectCount');
+    const launchButton = document.getElementById('launchButton');
+
+    slider.addEventListener('input', () => {
+        objectCount.textContent = slider.value;
+    });
+
+    launchButton.addEventListener('click', () => {
+        const count = parseInt(slider.value);
+        launchObjects(count);
+    });
+}
+
+function createSphere(isRaindrop = false) {
+    const radius = isRaindrop ? 0.05 : 0.2 + Math.random() * 0.1;
+    const sphereShape = new CANNON.Sphere(radius);
+    const sphereBody = new CANNON.Body({
+        mass: 1,
+        shape: sphereShape,
+        position: new CANNON.Vec3(
+            Math.random() * 10 - 5,
+            isRaindrop ? 10 : 5 + Math.random() * 5,
+            Math.random() * 10 - 5
+        )
+    });
+    world.addBody(sphereBody);
+
+    const sphereGeometry = new THREE.SphereGeometry(radius, 32, 32);
+    const sphereMaterial = new THREE.MeshPhongMaterial({ 
+        color: isRaindrop ? 0x00aaff : Math.random() * 0xffffff 
+    });
+    const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    scene.add(sphereMesh);
+
+    spheres.push({ body: sphereBody, mesh: sphereMesh, isRaindrop });
+}
+
+function createBox() {
+    const size = 0.4 + Math.random() * 0.2;
+    const boxShape = new CANNON.Box(new CANNON.Vec3(size / 2, size / 2, size / 2));
+    const boxBody = new CANNON.Body({
+        mass: 1,
+        shape: boxShape,
+        position: new CANNON.Vec3(Math.random() * 2 - 1, 5 + Math.random() * 5, Math.random() * 2 - 1)
+    });
+    world.addBody(boxBody);
+
+    const boxGeometry = new THREE.BoxGeometry(size, size, size);
+    const boxMaterial = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff });
+    const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
+    scene.add(boxMesh);
+
+    boxes.push({ body: boxBody, mesh: boxMesh });
+}
+
+function launchObjects(count) {
+    for (let i = 0; i < count; i++) {
+        if (Math.random() < 0.5) {
+            createSphere();
+        } else {
+            createBox();
+        }
+    }
+}
+
+function onMouseMove(event) {
+    const mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+    const mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    camera.position.x = Math.sin(mouseX * Math.PI) * 10;
+    camera.position.z = Math.cos(mouseX * Math.PI) * 10;
+    camera.position.y = 5 + mouseY * 5;
+    camera.lookAt(0, 0, 0);
+}
+
+function onKeyDown(event) {
+    if (event.key === 'Shift' && event.location === KeyboardEvent.DOM_KEY_LOCATION_LEFT) {
+        if (!isShiftPressed) {
+            isShiftPressed = true;
+            startRain();
+        }
+    }
+}
+
+function onKeyUp(event) {
+    if (event.key === 'Shift' && event.location === KeyboardEvent.DOM_KEY_LOCATION_LEFT) {
+        isShiftPressed = false;
+        stopRain();
+    }
+}
+
+function startRain() {
+    rainInterval = setInterval(() => {
+        createSphere(true);
+    }, 50);
+}
+
+function stopRain() {
+    clearInterval(rainInterval);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    world.step(1 / 60);
+
+    spheres.forEach((sphere, index) => {
+        sphere.mesh.position.copy(sphere.body.position);
+        sphere.mesh.quaternion.copy(sphere.body.quaternion);
+
+        // Remove raindrops that fall below the ground
+        if (sphere.isRaindrop && sphere.body.position.y < -1) {
+            scene.remove(sphere.mesh);
+            world.removeBody(sphere.body);
+            spheres.splice(index, 1);
+        }
+    });
+
+    boxes.forEach(box => {
+        box.mesh.position.copy(box.body.position);
+        box.mesh.quaternion.copy(box.body.quaternion);
+    });
+
+    renderer.render(scene, camera);
+}
+
+init();
+animate();
+
+    </script>
+</body>
+</html>
